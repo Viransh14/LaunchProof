@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LaunchProof — Validate before you build</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0A0B0D;
+  --bg-elevated:#121417;
+  --card:#16181C;
+  --card-border:#23262B;
+  --card-hover:#1C1F24;
+  --text:#EDEFF2;
+  --text-dim:#9CA3AC;
+  --text-faint:#5C626B;
+  --green:#39FF6A;
+  --green-dim:#1F8F42;
+  --amber:#FFB23E;
+  --amber-dim:#8F6A1F;
+  --coral:#FF4D4D;
+  --coral-dim:#8F2424;
+  --display:'Space Grotesk',sans-serif;
+  --body:'Inter',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--body);
+  overflow-x:hidden;
+  min-height:100vh;
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:0.01ms !important;animation-iteration-count:1 !important;transition-duration:0.01ms !important;}
+}
+::selection{background:var(--green);color:#0A0B0D;}
+::-webkit-scrollbar{width:10px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--card-border);border-radius:5px;}
+::-webkit-scrollbar-thumb:hover{background:var(--text-faint);}
+
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;}
+input,select,textarea{font-family:inherit;color:inherit;}
+
+:focus-visible{outline:2px solid var(--green);outline-offset:2px;}
+
+.screen{display:none;min-height:100vh;}
+.screen.active{display:block;}
+
+.app-shell{position:relative;min-height:100vh;}
+
+/* ===== Particle / grid background ===== */
+#bgCanvas{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0.5;}
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:0.025;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ===== Layout utility ===== */
+.container{max-width:1180px;margin:0 auto;padding:0 32px;}
+@media (max-width:640px){.container{padding:0 20px;}}
+
+/* ===== Nav ===== */
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,11,13,0.75);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--card-border);
+}
+.nav-inner{max-width:1180px;margin:0 auto;padding:18px 32px;display:flex;align-items:center;justify-content:space-between;}
+@media (max-width:640px){.nav-inner{padding:16px 20px;}}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:19px;letter-spacing:-0.02em;}
+.logo-mark{width:28px;height:28px;flex-shrink:0;}
+.nav-links{display:flex;align-items:center;gap:36px;}
+@media (max-width:860px){.nav-links{display:none;}}
+.nav-link{font-size:14.5px;color:var(--text-dim);transition:color .2s;}
+.nav-link:hover{color:var(--text);}
+.nav-actions{display:flex;align-items:center;gap:14px;}
+.nav-user{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--text-dim);}
+.nav-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--green-dim));display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:#0A0B0D;}
+
+/* ===== Buttons ===== */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:12px 22px;border-radius:8px;font-size:14.5px;font-weight:600;
+  transition:all .18s cubic-bezier(.4,0,.2,1);white-space:nowrap;}
+.btn-primary{background:var(--green);color:#06120A;}
+.btn-primary:hover{background:#4FFF7E;transform:translateY(-1px);box-shadow:0 8px 24px -8px rgba(57,255,106,0.5);}
+.btn-primary:active{transform:translateY(0);}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--card-border);}
+.btn-ghost:hover{border-color:var(--text-faint);background:var(--card-hover);}
+.btn-sm{padding:9px 16px;font-size:13.5px;}
+.btn-lg{padding:15px 30px;font-size:15.5px;}
+.btn-block{width:100%;}
+.btn:disabled{opacity:0.5;cursor:not-allowed;}
+.btn-icon{padding:10px;border-radius:8px;}
+
+/* ===== Typography ===== */
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:var(--green);font-weight:600;}
+h1,h2,h3,h4{font-family:var(--display);letter-spacing:-0.02em;line-height:1.08;}
+.text-dim{color:var(--text-dim);}
+.text-faint{color:var(--text-faint);}
+.mono{font-family:var(--mono);}
+
+/* ============ LANDING ============ */
+#screen-landing{padding-top:0;}
+.hero{position:relative;padding:180px 0 120px;overflow:hidden;}
+@media (max-width:640px){.hero{padding:140px 0 70px;}}
+.hero-inner{position:relative;z-index:2;max-width:840px;}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border:1px solid var(--card-border);border-radius:100px;font-size:13px;color:var(--text-dim);margin-bottom:28px;background:var(--card);}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+.hero h1{font-size:clamp(40px,6.2vw,76px);font-weight:700;margin-bottom:24px;}
+.hero h1 .accent{color:var(--green);}
+.hero-sub{font-size:19px;color:var(--text-dim);max-width:600px;line-height:1.6;margin-bottom:40px;}
+.hero-cta{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:64px;}
+.hero-meta{display:flex;gap:32px;flex-wrap:wrap;font-size:13.5px;color:var(--text-faint);}
+.hero-meta span{display:flex;align-items:center;gap:7px;}
+
+.hero-visual{position:relative;margin-top:80px;border-radius:16px;border:1px solid var(--card-border);background:var(--card);padding:0;overflow:hidden;box-shadow:0 40px 100px -30px rgba(0,0,0,0.6);}
+.hero-visual-bar{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--card-border);background:var(--bg-elevated);}
+.hero-visual-bar .d{width:10px;height:10px;border-radius:50%;background:var(--card-border);}
+.hero-visual-body{padding:28px;display:grid;grid-template-columns:1.2fr 1fr;gap:28px;}
+@media (max-width:760px){.hero-visual-body{grid-template-columns:1fr;}}
+
+.mini-gauge{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px;}
+.gauge-center{position:absolute;top:50%;left:50%;transform:translate(-50%, -50%);display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.mini-gauge svg{width:160px;height:160px;}
+.mini-gauge .score-num{font-family:var(--mono);font-size:38px;font-weight:700;color:var(--green);}
+.mini-gauge .score-label{font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.08em;}
+
+.mini-stats{display:flex;flex-direction:column;gap:12px;justify-content:center;}
+.mini-stat-row{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--card-border);}
+.mini-stat-row .label{font-size:13.5px;color:var(--text-dim);}
+.mini-stat-row .val{font-family:var(--mono);font-size:13.5px;font-weight:600;}
+.val-good{color:var(--green);}
+.val-warn{color:var(--amber);}
+
+/* Logos / trust strip */
+.trust-strip{padding:50px 0;border-top:1px solid var(--card-border);border-bottom:1px solid var(--card-border);}
+.trust-strip-inner{display:flex;align-items:center;justify-content:space-between;gap:40px;flex-wrap:wrap;}
+.trust-label{font-size:12.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.1em;white-space:nowrap;}
+.trust-logos{display:flex;gap:48px;flex-wrap:wrap;align-items:center;opacity:0.5;}
+.trust-logos span{font-family:var(--display);font-weight:600;font-size:16px;color:var(--text-faint);}
+
+/* Section generic */
+.section{padding:120px 0;}
+@media (max-width:640px){.section{padding:72px 0;}}
+.section-head{max-width:600px;margin-bottom:64px;}
+.section-head h2{font-size:clamp(28px,4vw,42px);margin:14px 0 16px;}
+.section-head p{font-size:16.5px;color:var(--text-dim);line-height:1.6;}
+.section-head.center{margin-left:auto;margin-right:auto;text-align:center;}
+
+/* Features grid */
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--card-border);border:1px solid var(--card-border);border-radius:16px;overflow:hidden;}
+@media (max-width:860px){.feat-grid{grid-template-columns:repeat(2,1fr);}}
+@media (max-width:600px){.feat-grid{grid-template-columns:1fr;}}
+.feat-card{background:var(--bg);padding:32px 28px;transition:background .2s;}
+.feat-card:hover{background:var(--card);}
+.feat-icon{width:40px;height:40px;border-radius:9px;background:var(--card);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;margin-bottom:20px;color:var(--green);}
+.feat-card h3{font-size:17px;margin-bottom:9px;font-weight:600;}
+.feat-card p{font-size:14px;color:var(--text-dim);line-height:1.55;}
+
+/* How it works */
+.steps-row{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;}
+@media (max-width:860px){.steps-row{grid-template-columns:repeat(2,1fr);}}
+@media (max-width:520px){.steps-row{grid-template-columns:1fr;}}
+.step-card{position:relative;padding:28px 22px;}
+.step-num{font-family:var(--mono);font-size:13px;color:var(--green);margin-bottom:18px;display:block;}
+.step-card h4{font-size:16px;margin-bottom:8px;font-weight:600;}
+.step-card p{font-size:13.5px;color:var(--text-dim);line-height:1.55;}
+.step-line{position:absolute;top:14px;left:calc(100% - 10px);width:calc(100% - 28px);height:1px;background:linear-gradient(90deg,var(--card-border),transparent);}
+@media (max-width:860px){.step-line{display:none;}}
+
+/* Testimonials */
+.testi-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+@media (max-width:860px){.testi-grid{grid-template-columns:1fr;}}
+.testi-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:26px;display:flex;flex-direction:column;gap:18px;}
+.testi-stars{color:var(--amber);font-size:14px;letter-spacing:2px;}
+.testi-quote{font-size:14.5px;line-height:1.6;color:var(--text);}
+.testi-person{display:flex;align-items:center;gap:11px;margin-top:auto;}
+.testi-avatar{width:36px;height:36px;border-radius:50%;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--green);border:1px solid var(--card-border);}
+.testi-name{font-size:13.5px;font-weight:600;}
+.testi-role{font-size:12px;color:var(--text-faint);}
+
+/* Pricing */
+.price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:stretch;}
+@media (max-width:860px){.price-grid{grid-template-columns:1fr;max-width:420px;margin:0 auto;}}
+.price-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:32px 28px;display:flex;flex-direction:column;}
+.price-card.featured{border-color:var(--green);position:relative;background:linear-gradient(180deg,rgba(57,255,106,0.05),var(--card) 30%);}
+.price-tag{position:absolute;top:-12px;left:28px;background:var(--green);color:#06120A;font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:100px;text-transform:uppercase;letter-spacing:0.05em;}
+.price-name{font-size:15px;color:var(--text-dim);margin-bottom:6px;}
+.price-amount{font-family:var(--mono);font-size:38px;font-weight:700;margin-bottom:4px;}
+.price-amount span{font-size:15px;color:var(--text-faint);font-weight:400;}
+.price-desc{font-size:13.5px;color:var(--text-faint);margin-bottom:24px;}
+.price-feats{list-style:none;display:flex;flex-direction:column;gap:11px;margin-bottom:28px;flex:1;}
+.price-feats li{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:var(--text-dim);}
+.price-feats li svg{flex-shrink:0;margin-top:2px;color:var(--green);}
+
+/* Final CTA */
+.final-cta{padding:100px 0;text-align:center;}
+.final-cta-box{background:var(--card);border:1px solid var(--card-border);border-radius:24px;padding:80px 40px;position:relative;overflow:hidden;}
+.final-cta-box h2{font-size:clamp(28px,4.5vw,46px);margin-bottom:18px;}
+.final-cta-box p{color:var(--text-dim);font-size:16.5px;margin-bottom:36px;}
+
+/* Footer */
+.footer{padding:56px 0 40px;border-top:1px solid var(--card-border);}
+.footer-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px;}
+.footer-links{display:flex;gap:28px;flex-wrap:wrap;}
+.footer-links a{font-size:13.5px;color:var(--text-faint);}
+.footer-links a:hover{color:var(--text-dim);}
+
+/* ============ AUTH ============ */
+#screen-auth{display:none;min-height:100vh;align-items:center;justify-content:center;padding:100px 20px 40px;}
+#screen-auth.active{display:flex;}
+.auth-box{width:100%;max-width:400px;position:relative;z-index:2;}
+.auth-back{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;color:var(--text-faint);margin-bottom:32px;}
+.auth-back:hover{color:var(--text-dim);}
+.auth-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:36px 32px;}
+.auth-head{text-align:center;margin-bottom:28px;}
+.auth-head h2{font-size:24px;margin-bottom:8px;}
+.auth-head p{font-size:13.5px;color:var(--text-dim);}
+.auth-tabs{display:flex;background:var(--bg-elevated);border-radius:9px;padding:4px;margin-bottom:24px;border:1px solid var(--card-border);}
+.auth-tab{flex:1;text-align:center;padding:9px;border-radius:6px;font-size:13.5px;font-weight:600;color:var(--text-faint);transition:all .2s;}
+.auth-tab.active{background:var(--card);color:var(--text);}
+.field{margin-bottom:16px;}
+.field label{display:block;font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:7px;}
+.field input,.field select,.field textarea{width:100%;padding:11px 14px;background:var(--bg-elevated);border:1px solid var(--card-border);border-radius:8px;font-size:14px;transition:border-color .2s;}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--green);outline:none;}
+.field input::placeholder,.field textarea::placeholder{color:var(--text-faint);}
+.auth-divider{display:flex;align-items:center;gap:12px;margin:20px 0;font-size:12px;color:var(--text-faint);}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--card-border);}
+.auth-foot{text-align:center;font-size:13px;color:var(--text-faint);margin-top:18px;}
+.auth-foot button{color:var(--green);font-weight:600;}
+
+/* ============ FORM SCREEN ============ */
+#screen-form{padding:120px 0 80px;min-height:100vh;}
+.form-wrap{max-width:760px;margin:0 auto;}
+.form-progress{display:flex;align-items:center;gap:8px;margin-bottom:36px;}
+.progress-dot{flex:1;height:3px;border-radius:2px;background:var(--card-border);transition:background .3s;}
+.progress-dot.done{background:var(--green);}
+.form-step{display:none;}
+.form-step.active{display:block;animation:fadeUp .4s ease;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.form-step-head{margin-bottom:28px;}
+.form-step-head .eyebrow{margin-bottom:10px;display:block;}
+.form-step-head h2{font-size:28px;margin-bottom:8px;}
+.form-step-head p{color:var(--text-dim);font-size:14.5px;}
+.chip-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;}
+.chip{padding:10px 16px;border:1px solid var(--card-border);border-radius:9px;font-size:13.5px;color:var(--text-dim);transition:all .15s;background:var(--card);}
+.chip:hover{border-color:var(--text-faint);}
+.chip.selected{border-color:var(--green);background:rgba(57,255,106,0.08);color:var(--green);font-weight:600;}
+.form-nav{display:flex;justify-content:space-between;align-items:center;margin-top:36px;}
+.char-count{font-size:12px;color:var(--text-faint);text-align:right;margin-top:6px;font-family:var(--mono);}
+.textarea-lg{min-height:130px;resize:vertical;line-height:1.5;}
+
+/* ============ PROCESSING SCREEN ============ */
+#screen-processing{min-height:100vh;display:none;align-items:center;justify-content:center;padding:100px 20px;}
+#screen-processing.active{display:flex;}
+.proc-wrap{max-width:560px;width:100%;text-align:center;}
+.proc-gauge-wrap{margin-bottom:40px;display:flex;justify-content:center;}
+.proc-title{font-size:22px;margin-bottom:8px;}
+.proc-sub{color:var(--text-dim);font-size:14px;margin-bottom:40px;}
+.proc-steps{display:flex;flex-direction:column;gap:4px;text-align:left;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:8px;}
+.proc-step{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:9px;transition:background .3s;}
+.proc-step.active{background:var(--bg-elevated);}
+.proc-step-icon{width:22px;height:22px;border-radius:50%;border:2px solid var(--card-border);flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .3s;}
+.proc-step.active .proc-step-icon{border-color:var(--green);}
+.proc-step.done .proc-step-icon{border-color:var(--green);background:var(--green);}
+.proc-step-icon svg{opacity:0;transition:opacity .2s;width:12px;height:12px;}
+.proc-step.done .proc-step-icon svg{opacity:1;}
+.proc-step-text{font-size:14px;color:var(--text-faint);transition:color .3s;}
+.proc-step.active .proc-step-text,.proc-step.done .proc-step-text{color:var(--text);}
+.proc-spinner{width:14px;height:14px;border-radius:50%;border:2px solid var(--card-border);border-top-color:var(--green);animation:spin 0.8s linear infinite;opacity:0;}
+.proc-step.active .proc-spinner{opacity:1;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ============ DASHBOARD ============ */
+#screen-dashboard{padding-top:80px;min-height:100vh;}
+.dash-shell{display:flex;}
+.sidebar{width:240px;flex-shrink:0;border-right:1px solid var(--card-border);padding:28px 16px;position:sticky;top:80px;height:calc(100vh - 80px);overflow-y:auto;}
+@media (max-width:960px){.sidebar{display:none;}}
+.sidebar-section{margin-bottom:8px;}
+.sidebar-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-faint);padding:8px 12px;font-weight:600;}
+.sidebar-link{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13.5px;color:var(--text-dim);margin-bottom:2px;transition:all .15s;}
+.sidebar-link:hover{background:var(--card);color:var(--text);}
+.sidebar-link.active{background:var(--card);color:var(--green);font-weight:600;}
+.sidebar-link svg{flex-shrink:0;}
+.dash-main{flex:1;padding:32px 36px 80px;max-width:1180px;}
+@media (max-width:640px){.dash-main{padding:24px 18px 60px;}}
+
+.dash-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;flex-wrap:wrap;gap:16px;}
+.dash-title-area .eyebrow{margin-bottom:8px;display:block;}
+.dash-header h1{font-size:26px;margin-bottom:6px;}
+.dash-header p{color:var(--text-dim);font-size:14px;}
+.dash-actions{display:flex;gap:10px;}
+
+.dash-hero-grid{display:grid;grid-template-columns:280px 1fr;gap:24px;margin-bottom:32px;}
+@media (max-width:860px){.dash-hero-grid{grid-template-columns:1fr;}}
+.score-card{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:28px;display:flex;flex-direction:column;align-items:center;text-align:center;}
+.score-verdict{margin-top:14px;padding:6px 14px;border-radius:100px;font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}
+.verdict-strong{background:rgba(57,255,106,0.12);color:var(--green);}
+.verdict-moderate{background:rgba(255,178,62,0.12);color:var(--amber);}
+.verdict-weak{background:rgba(255,77,77,0.12);color:var(--coral);}
+.score-sub{font-size:12.5px;color:var(--text-faint);margin-top:10px;}
+
+.metrics-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+@media (max-width:500px){.metrics-grid{grid-template-columns:1fr;}}
+.metric-card{background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:18px 20px;}
+.metric-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+.metric-label{font-size:12.5px;color:var(--text-dim);font-weight:500;}
+.metric-icon{color:var(--green);}
+.metric-val{font-family:var(--mono);font-size:24px;font-weight:700;margin-bottom:6px;}
+.metric-bar{height:5px;background:var(--bg-elevated);border-radius:3px;overflow:hidden;}
+.metric-bar-fill{height:100%;border-radius:3px;transition:width 1s cubic-bezier(.4,0,.2,1);}
+
+.module-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px;}
+.module-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:22px;cursor:pointer;transition:all .18s;display:flex;flex-direction:column;gap:14px;}
+.module-card:hover{border-color:var(--text-faint);transform:translateY(-2px);}
+.module-top{display:flex;justify-content:space-between;align-items:flex-start;}
+.module-icon{width:38px;height:38px;border-radius:9px;background:var(--bg-elevated);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;color:var(--green);}
+.module-arrow{color:var(--text-faint);transition:transform .2s, color .2s;}
+.module-card:hover .module-arrow{transform:translate(3px,-3px);color:var(--green);}
+.module-card h4{font-size:15.5px;font-weight:600;}
+.module-card p{font-size:12.5px;color:var(--text-faint);line-height:1.5;}
+.module-tag{display:inline-flex;align-self:flex-start;font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:5px;background:var(--bg-elevated);color:var(--text-faint);}
+
+.section-title-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;margin-top:40px;}
+.section-title-row h3{font-size:17px;}
+
+/* ============ HISTORY ============ */
+#screen-history{padding:120px 0 80px;min-height:100vh;}
+.history-list{display:flex;flex-direction:column;gap:12px;}
+.history-item{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:20px 22px;cursor:pointer;transition:all .15s;gap:16px;flex-wrap:wrap;}
+.history-item:hover{border-color:var(--text-faint);}
+.history-left{display:flex;align-items:center;gap:16px;flex:1;min-width:0;}
+.history-score{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:14px;flex-shrink:0;border:2px solid;}
+.history-info h4{font-size:15px;margin-bottom:4px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.history-info p{font-size:12.5px;color:var(--text-faint);}
+.history-meta{display:flex;align-items:center;gap:24px;flex-shrink:0;}
+.empty-state{text-align:center;padding:100px 20px;}
+.empty-state svg{margin-bottom:20px;color:var(--text-faint);}
+.empty-state h3{font-size:19px;margin-bottom:8px;}
+.empty-state p{color:var(--text-faint);font-size:14px;margin-bottom:24px;}
+
+/* ============ MODAL ============ */
+.modal-overlay{position:fixed;inset:0;background:rgba(6,7,8,0.7);backdrop-filter:blur(4px);z-index:200;display:none;align-items:flex-start;justify-content:center;padding:60px 20px;overflow-y:auto;}
+.modal-overlay.active{display:flex;animation:fadeIn .2s ease;}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+.modal-box{background:var(--bg-elevated);border:1px solid var(--card-border);border-radius:18px;max-width:760px;width:100%;animation:modalUp .3s cubic-bezier(.16,1,.3,1);margin-bottom:60px;}
+@keyframes modalUp{from{opacity:0;transform:translateY(24px) scale(.98);}to{opacity:1;transform:translateY(0) scale(1);}}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;padding:26px 28px;border-bottom:1px solid var(--card-border);position:sticky;top:0;background:var(--bg-elevated);border-radius:18px 18px 0 0;z-index:2;}
+.modal-head-left{display:flex;align-items:center;gap:14px;}
+.modal-icon{width:42px;height:42px;border-radius:10px;background:var(--card);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;color:var(--green);flex-shrink:0;}
+.modal-head h2{font-size:19px;margin-bottom:3px;}
+.modal-head p{font-size:12.5px;color:var(--text-faint);}
+.modal-close{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-faint);transition:all .15s;flex-shrink:0;}
+.modal-close:hover{background:var(--card);color:var(--text);}
+.modal-body{padding:28px;}
+.modal-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:16px;}
+.modal-spinner{width:32px;height:32px;border-radius:50%;border:3px solid var(--card-border);border-top-color:var(--green);animation:spin 0.8s linear infinite;}
+.modal-loading p{font-size:13.5px;color:var(--text-faint);}
+
+/* Modal content blocks */
+.mc-block{margin-bottom:26px;}
+.mc-block:last-child{margin-bottom:0;}
+.mc-block h4{font-size:13px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-faint);margin-bottom:12px;font-weight:600;}
+.mc-text{font-size:14.5px;line-height:1.7;color:var(--text-dim);}
+.mc-list{list-style:none;display:flex;flex-direction:column;gap:10px;}
+.mc-list li{display:flex;gap:10px;font-size:14px;line-height:1.55;color:var(--text-dim);}
+.mc-list li .b{color:var(--green);flex-shrink:0;}
+.mc-table{width:100%;border-collapse:collapse;font-size:13.5px;}
+.mc-table th{text-align:left;padding:10px 12px;color:var(--text-faint);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;border-bottom:1px solid var(--card-border);}
+.mc-table td{padding:12px;border-bottom:1px solid var(--card-border);color:var(--text-dim);}
+.mc-table tr:last-child td{border-bottom:none;}
+.pill{display:inline-flex;padding:3px 10px;border-radius:100px;font-size:11.5px;font-weight:600;}
+.pill-green{background:rgba(57,255,106,0.12);color:var(--green);}
+.pill-amber{background:rgba(255,178,62,0.12);color:var(--amber);}
+.pill-coral{background:rgba(255,77,77,0.12);color:var(--coral);}
+.swot-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media (max-width:560px){.swot-grid{grid-template-columns:1fr;}}
+.swot-box{border-radius:12px;padding:18px;border:1px solid var(--card-border);}
+.swot-box h5{font-size:12.5px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;font-weight:700;}
+.swot-s{background:rgba(57,255,106,0.05);border-color:rgba(57,255,106,0.2);}
+.swot-s h5{color:var(--green);}
+.swot-w{background:rgba(255,77,77,0.05);border-color:rgba(255,77,77,0.2);}
+.swot-w h5{color:var(--coral);}
+.swot-o{background:rgba(255,178,62,0.05);border-color:rgba(255,178,62,0.2);}
+.swot-o h5{color:var(--amber);}
+.swot-t{background:rgba(156,163,172,0.05);border-color:var(--card-border);}
+.swot-t h5{color:var(--text-dim);}
+
+.timeline{display:flex;flex-direction:column;}
+.tl-item{display:flex;gap:16px;position:relative;padding-bottom:24px;}
+.tl-item:last-child{padding-bottom:0;}
+.tl-marker{width:10px;height:10px;border-radius:50%;background:var(--green);margin-top:5px;flex-shrink:0;position:relative;z-index:2;}
+.tl-line{position:absolute;left:4.5px;top:14px;bottom:0;width:1px;background:var(--card-border);}
+.tl-content{flex:1;}
+.tl-content .tl-phase{font-family:var(--mono);font-size:11.5px;color:var(--green);margin-bottom:3px;}
+.tl-content h5{font-size:14.5px;margin-bottom:5px;font-weight:600;}
+.tl-content p{font-size:13px;color:var(--text-faint);line-height:1.5;}
+
+.competitor-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--card-border);}
+.competitor-row:last-child{border-bottom:none;}
+.comp-logo{width:36px;height:36px;border-radius:8px;background:var(--card);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text-dim);flex-shrink:0;}
+.comp-info{flex:1;min-width:0;}
+.comp-info h5{font-size:14px;margin-bottom:2px;font-weight:600;}
+.comp-info p{font-size:12px;color:var(--text-faint);}
+.comp-strength{font-family:var(--mono);font-size:12px;color:var(--text-faint);white-space:nowrap;}
+
+.persona-card{background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:18px;margin-bottom:12px;}
+.persona-top{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.persona-avatar{width:40px;height:40px;border-radius:50%;background:var(--bg-elevated);border:1px solid var(--card-border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;color:var(--green);font-size:13px;}
+.persona-top h5{font-size:14.5px;font-weight:600;}
+.persona-top span{font-size:12px;color:var(--text-faint);}
+
+.pitch-slide{background:var(--card);border:1px solid var(--card-border);border-radius:12px;padding:20px;margin-bottom:12px;}
+.pitch-slide-num{font-family:var(--mono);font-size:11px;color:var(--text-faint);margin-bottom:8px;}
+.pitch-slide h5{font-size:15px;margin-bottom:8px;font-weight:600;}
+.pitch-slide p{font-size:13.5px;color:var(--text-dim);line-height:1.55;}
+
+.landing-preview{background:linear-gradient(180deg,#0A0B0D,#121417);border:1px solid var(--card-border);border-radius:12px;padding:32px 24px;text-align:center;}
+.landing-preview .lp-badge{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--green);border:1px solid var(--green-dim);padding:4px 12px;border-radius:100px;margin-bottom:16px;}
+.landing-preview h3{font-size:22px;margin-bottom:10px;}
+.landing-preview p{font-size:13.5px;color:var(--text-dim);max-width:420px;margin:0 auto 18px;}
+
+.modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:20px 28px;border-top:1px solid var(--card-border);}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--card);border:1px solid var(--card-border);border-radius:10px;padding:14px 20px;display:flex;align-items:center;gap:10px;font-size:13.5px;z-index:300;transition:transform .3s cubic-bezier(.16,1,.3,1);box-shadow:0 12px 30px -8px rgba(0,0,0,0.5);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast svg{color:var(--green);flex-shrink:0;}
+
+/* misc */
+.skel{background:linear-gradient(90deg,var(--card) 25%,var(--card-hover) 50%,var(--card) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:6px;}
+@keyframes shimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+
+.hidden{display:none !important;}
+</style>
+</head>
+<body>
+
+<canvas id="bgCanvas"></canvas>
+<div class="grain"></div>
+
+<!-- ============ NAV ============ -->
+<nav class="nav" id="mainNav">
+  <div class="nav-inner">
+    <a href="#" class="logo" onclick="goTo('landing');return false;">
+      <svg class="logo-mark" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="7" fill="#39FF6A"/>
+        <path d="M8 18L13 9L17 15L20 9" stroke="#06120A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      LaunchProof
+    </a>
+    <div class="nav-links" id="navLinksPublic">
+      <a class="nav-link" href="#features" onclick="scrollToSection('features')">Features</a>
+      <a class="nav-link" href="#how" onclick="scrollToSection('how')">How it works</a>
+      <a class="nav-link" href="#pricing" onclick="scrollToSection('pricing')">Pricing</a>
+    </div>
+    <div class="nav-actions" id="navActionsPublic">
+      <button class="btn btn-ghost btn-sm" onclick="goTo('auth');setAuthTab('login')">Log in</button>
+      <button class="btn btn-primary btn-sm" onclick="goTo('auth');setAuthTab('signup')">Validate my idea</button>
+    </div>
+    <div class="nav-actions hidden" id="navActionsApp">
+      <a class="nav-link" href="#" onclick="goTo('history');return false;" style="margin-right:8px;">History</a>
+      <div class="nav-user">
+        <div class="nav-avatar" id="navAvatar">?</div>
+        <span id="navUserName"></span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Log out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="app-shell">
+
+<!-- ============ LANDING ============ -->
+<section class="screen active" id="screen-landing">
+  <div class="hero">
+    <div class="container hero-inner">
+      <div class="hero-badge"><span class="dot"></span> Market signals • Competitors • Demand</div>
+      <h1>Don't build it blind.<br>Validate it <span class="accent">first.</span></h1>
+      <p class="hero-sub">LaunchProof scores your startup idea against real market signals, mapped competitors, and audience demand in minutes — so you find out it won't work before you've spent six months building it.</p>
+      <div class="hero-cta">
+        <button class="btn btn-primary btn-lg" onclick="goTo('auth');setAuthTab('signup')">
+          Validate my idea
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8H13M13 8L9 4M13 8L9 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="btn btn-ghost btn-lg" onclick="scrollToSection('how')">See how it works</button>
+      </div>
+      <div class="hero-meta">
+        <span><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1L8.5 5H13L9.5 7.5L11 12L7 9.5L3 12L4.5 7.5L1 5H5.5L7 1Z" stroke="#39FF6A" stroke-width="1.2"/></svg> No credit card required</span>
+        <span><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#39FF6A" stroke-width="1.2"/><path d="M7 4V7L9 8.5" stroke="#39FF6A" stroke-width="1.2" stroke-linecap="round"/></svg> Results in under 2 minutes</span>
+        <span><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="#39FF6A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg> 11 analysis modules</span>
+      </div>
+
+      <div class="hero-visual">
+        <div class="hero-visual-bar">
+          <div class="d"></div><div class="d"></div><div class="d"></div>
+        </div>
+        <div class="hero-visual-body">
+          <div class="mini-gauge">
+            <svg viewBox="0 0 160 160">
+              <circle cx="80" cy="80" r="68" fill="none" stroke="#23262B" stroke-width="10"/>
+              <circle cx="80" cy="80" r="68" fill="none" stroke="#39FF6A" stroke-width="10" stroke-linecap="round" stroke-dasharray="427" stroke-dashoffset="115" transform="rotate(-90 80 80)"/>
+            </svg>
+            <div class="gauge-center">
+              <div class="score-num">73</div>
+              <div class="score-label">Viability score</div>
+            </div>
+          </div>
+          <div class="mini-stats">
+            <div class="mini-stat-row"><span class="label">Market demand</span><span class="val val-good">High</span></div>
+            <div class="mini-stat-row"><span class="label">Competition</span><span class="val val-warn">Moderate</span></div>
+            <div class="mini-stat-row"><span class="label">Investor readiness</span><span class="val val-good">68/100</span></div>
+            <div class="mini-stat-row"><span class="label">Viral potential</span><span class="val val-good">Strong</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="trust-strip">
+    <div class="container trust-strip-inner">
+      <span class="trust-label">Built for founders, students, and indie hackers coming out of</span>
+      <div class="trust-logos">
+        <span>Y Combinator</span><span>Antler</span><span>On Deck</span><span>Techstars</span>
+      </div>
+    </div>
+  </div>
+
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Features</span>
+        <h2>Everything you'd ask a mentor, automated.</h2>
+        <p>Eleven analysis modules cover the questions that actually kill startups — answered before you write a line of code.</p>
+      </div>
+      <div class="feat-grid" id="featGrid"></div>
+    </div>
+  </section>
+
+  <section class="section" id="how" style="padding-top:0;">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Process</span>
+        <h2>From idea to verdict in four steps.</h2>
+        <p>No forms within forms. Describe your idea once, get a full investor-grade breakdown back.</p>
+      </div>
+      <div class="steps-row">
+        <div class="step-card"><span class="step-num">01</span><h4>Describe your idea</h4><p>Tell us what you're building, who it's for, and how it makes money — 90 seconds, no jargon required.</p><div class="step-line"></div></div>
+        <div class="step-card"><span class="step-num">02</span><h4>We run the analysis</h4><p>Market sizing, competitor mapping, and audience modeling run against real category benchmarks.</p><div class="step-line"></div></div>
+        <div class="step-card"><span class="step-num">03</span><h4>Get your score</h4><p>A single viability score plus eleven detailed reports — SWOT, MVP roadmap, pitch deck, and more.</p><div class="step-line"></div></div>
+        <div class="step-card"><span class="step-num">04</span><h4>Decide with confidence</h4><p>Build, pivot, or kill the idea — backed by evidence instead of gut feeling.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:0;">
+    <div class="container">
+      <div class="section-head center" style="margin-left:auto;margin-right:auto;">
+        <span class="eyebrow">Testimonials</span>
+        <h2>Founders who validated first.</h2>
+      </div>
+      <div class="testi-grid">
+        <div class="testi-card">
+          <div class="testi-stars">★★★★★</div>
+          <p class="testi-quote">"I was about to spend three months building a B2B tool. LaunchProof's competitor map showed me four funded startups already doing it better. Saved me a quarter of my life."</p>
+          <div class="testi-person"><div class="testi-avatar">RK</div><div><div class="testi-name">Rhea Kapoor</div><div class="testi-role">Indie hacker, ex-PM</div></div></div>
+        </div>
+        <div class="testi-card">
+          <div class="testi-stars">★★★★★</div>
+          <p class="testi-quote">"The investor readiness score is brutal but accurate. We fixed our unit economics before our first pitch instead of getting torn apart in the room."</p>
+          <div class="testi-person"><div class="testi-avatar">DM</div><div><div class="testi-name">Devansh Mehta</div><div class="testi-role">Founder, seed stage</div></div></div>
+        </div>
+        <div class="testi-card">
+          <div class="testi-stars">★★★★★</div>
+          <p class="testi-quote">"Used it as a class assignment generator at first. Now three of my students have actual MVPs because the roadmap module made the first step obvious."</p>
+          <div class="testi-person"><div class="testi-avatar">AS</div><div><div class="testi-name">Prof. Ananya Shah</div><div class="testi-role">Entrepreneurship faculty</div></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="pricing" style="padding-top:0;">
+    <div class="container">
+      <div class="section-head center" style="margin-left:auto;margin-right:auto;">
+        <span class="eyebrow">Pricing</span>
+        <h2>Validate before you pay for building.</h2>
+      </div>
+      <div class="price-grid">
+        <div class="price-card">
+          <div class="price-name">Starter</div>
+          <div class="price-amount">$0<span>/mo</span></div>
+          <div class="price-desc">Test the waters with one idea.</div>
+          <ul class="price-feats">
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> 1 validation report</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Core viability score</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Basic competitor map</li>
+          </ul>
+          <button class="btn btn-ghost btn-block" onclick="goTo('auth');setAuthTab('signup')">Start free</button>
+        </div>
+        <div class="price-card featured">
+          <div class="price-tag">Most popular</div>
+          <div class="price-name">Founder</div>
+          <div class="price-amount">$29<span>/mo</span></div>
+          <div class="price-desc">For founders actively building.</div>
+          <ul class="price-feats">
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Unlimited validation reports</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> All 11 analysis modules</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Pitch deck generator</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Export to PDF</li>
+          </ul>
+          <button class="btn btn-primary btn-block" onclick="goTo('auth');setAuthTab('signup')">Get started</button>
+        </div>
+        <div class="price-card">
+          <div class="price-name">Studio</div>
+          <div class="price-amount">$99<span>/mo</span></div>
+          <div class="price-desc">For incubators and studios.</div>
+          <ul class="price-feats">
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Everything in Founder</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Founder matching</li>
+            <li><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 7L5.5 10.5L12 3" stroke="currentColor" stroke-width="1.6"/></svg> Team seats (5)</li>
+          </ul>
+          <button class="btn btn-ghost btn-block" onclick="goTo('auth');setAuthTab('signup')">Talk to us</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="container">
+    <div class="final-cta">
+      <div class="final-cta-box">
+        <h2>Stop guessing. Start validating.</h2>
+        <p>It takes less time to validate your idea than it took you to read this page.</p>
+        <button class="btn btn-primary btn-lg" onclick="goTo('auth');setAuthTab('signup')">Validate my idea — free</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="logo" style="font-size:15px;">
+        <svg class="logo-mark" width="20" height="20" viewBox="0 0 28 28" fill="none"><rect width="28" height="28" rx="7" fill="#39FF6A"/><path d="M8 18L13 9L17 15L20 9" stroke="#06120A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        LaunchProof
+      </div>
+      <div class="footer-links">
+        <a href="#features" onclick="scrollToSection('features')">Features</a>
+        <a href="#pricing" onclick="scrollToSection('pricing')">Pricing</a>
+        <a href="#" onclick="return false;">Privacy</a>
+        <a href="#" onclick="return false;">Terms</a>
+      </div>
+      <span class="text-faint" style="font-size:13px;">© 2026 LaunchProof. Built for founders.</span>
+    </div>
+  </footer>
+</section>
+
+<!-- ============ AUTH ============ -->
+<section class="screen" id="screen-auth">
+  <div class="auth-box">
+    <a class="auth-back" href="#" onclick="goTo('landing');return false;">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M11 7H3M3 7L7 11M3 7L7 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back to home
+    </a>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" onclick="setAuthTab('login')">Log in</button>
+        <button class="auth-tab" id="tabSignup" onclick="setAuthTab('signup')">Sign up</button>
+      </div>
+      <div class="auth-head">
+        <h2 id="authHeadline">Welcome back</h2>
+        <p id="authSub">Log in to access your validation dashboard.</p>
+      </div>
+      <form id="authForm" onsubmit="handleAuth(event)">
+        <div class="field hidden" id="fieldName">
+          <label>Full name</label>
+          <input type="text" id="authName" placeholder="Aanya Verma" autocomplete="name">
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="authEmail" placeholder="you@startup.com" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password" required minlength="4">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="authSubmitBtn">Log in</button>
+      </form>
+      <div class="auth-divider">or continue with</div>
+      <button class="btn btn-ghost btn-block" onclick="handleAuth(null,true)">
+        <svg width="16" height="16" viewBox="0 0 16 16"><path fill="#4285F4" d="M15.68 8.18c0-.58-.05-1.13-.15-1.66H8v3.14h4.3a3.68 3.68 0 0 1-1.6 2.42v2h2.59c1.51-1.4 2.39-3.45 2.39-5.9z"/><path fill="#34A853" d="M8 16c2.16 0 3.97-.72 5.3-1.93l-2.6-2c-.72.48-1.64.77-2.7.77-2.08 0-3.84-1.4-4.47-3.3H.85v2.07A8 8 0 0 0 8 16z"/><path fill="#FBBC05" d="M3.53 9.53A4.8 4.8 0 0 1 3.27 8c0-.53.1-1.05.26-1.53V4.4H.85a8 8 0 0 0 0 7.2l2.68-2.07z"/><path fill="#EA4335" d="M8 3.18c1.18 0 2.23.4 3.06 1.2l2.3-2.3C11.97.9 10.16.18 8 .18a8 8 0 0 0-7.15 4.22l2.68 2.07C4.16 4.58 5.92 3.18 8 3.18z"/></svg>
+        Continue with Google
+      </button>
+      <div class="auth-foot" id="authFootText">
+        Don't have an account? <button onclick="setAuthTab('signup')">Sign up</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FORM (multi-step) ============ -->
+<section class="screen" id="screen-form">
+  <div class="container">
+    <div class="form-wrap">
+      <div class="form-progress" id="formProgress"></div>
+
+      <div class="form-step active" data-step="1">
+        <div class="form-step-head">
+          <span class="eyebrow">Step 1 of 5</span>
+          <h2>What are you building?</h2>
+          <p>Give it a name and describe the idea in your own words.</p>
+        </div>
+        <div class="field">
+          <label>Startup name</label>
+          <input type="text" id="f_name" placeholder="e.g. PantryPilot">
+        </div>
+        <div class="field">
+          <label>Describe your idea</label>
+          <textarea id="f_desc" class="textarea-lg" placeholder="What does it do? What problem does it solve? Be as specific as you can — this drives the entire analysis." maxlength="600" oninput="updateCharCount()"></textarea>
+          <div class="char-count"><span id="charCount">0</span>/600</div>
+        </div>
+      </div>
+
+      <div class="form-step" data-step="2">
+        <div class="form-step-head">
+          <span class="eyebrow">Step 2 of 5</span>
+          <h2>What industry is this?</h2>
+          <p>Pick the closest match — this sets the benchmarks we score you against.</p>
+        </div>
+        <div class="chip-grid" id="industryChips"></div>
+      </div>
+
+      <div class="form-step" data-step="3">
+        <div class="form-step-head">
+          <span class="eyebrow">Step 3 of 5</span>
+          <h2>Who is this for?</h2>
+          <p>Select your primary target audience.</p>
+        </div>
+        <div class="chip-grid" id="audienceChips"></div>
+      </div>
+
+      <div class="form-step" data-step="4">
+        <div class="form-step-head">
+          <span class="eyebrow">Step 4 of 5</span>
+          <h2>How will it make money?</h2>
+          <p>Choose the revenue model closest to your plan.</p>
+        </div>
+        <div class="chip-grid" id="revenueChips"></div>
+      </div>
+
+      <div class="form-step" data-step="5">
+        <div class="form-step-head">
+          <span class="eyebrow">Step 5 of 5</span>
+          <h2>Almost there.</h2>
+          <p>A couple more details to sharpen the analysis.</p>
+        </div>
+        <div class="field">
+          <label>Stage</label>
+          <div class="chip-grid" id="stageChips"></div>
+        </div>
+        <div class="field" style="margin-top:20px;">
+          <label>What's your biggest concern about this idea? (optional)</label>
+          <textarea id="f_concern" class="textarea-lg" style="min-height:90px;" placeholder="e.g. Not sure anyone will pay for this, or worried a bigger player will copy it..."></textarea>
+        </div>
+      </div>
+
+      <div class="form-nav">
+        <button class="btn btn-ghost" id="formBackBtn" onclick="formBack()">Back</button>
+        <button class="btn btn-primary" id="formNextBtn" onclick="formNext()">Continue</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PROCESSING ============ -->
+<section class="screen" id="screen-processing">
+  <div class="proc-wrap">
+    <div class="proc-gauge-wrap">
+      <svg width="180" height="180" viewBox="0 0 180 180">
+        <circle cx="90" cy="90" r="76" fill="none" stroke="#23262B" stroke-width="10"/>
+        <circle id="procGaugeRing" cx="90" cy="90" r="76" fill="none" stroke="#39FF6A" stroke-width="10" stroke-linecap="round" stroke-dasharray="477" stroke-dashoffset="477" transform="rotate(-90 90 90)" style="transition:stroke-dashoffset 0.4s linear;"/>
+        <text x="90" y="86" text-anchor="middle" font-family="JetBrains Mono" font-size="34" font-weight="700" fill="#EDEFF2" id="procGaugeNum">0</text>
+        <text x="90" y="108" text-anchor="middle" font-family="Inter" font-size="11" fill="#5C626B">analyzing</text>
+      </svg>
+    </div>
+    <h2 class="proc-title">Running your validation</h2>
+    <p class="proc-sub">This usually takes about 20 seconds. Don't close this tab.</p>
+    <div class="proc-steps" id="procSteps"></div>
+  </div>
+</section>
+
+<!-- ============ DASHBOARD ============ -->
+<section class="screen" id="screen-dashboard">
+  <div class="dash-shell">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Overview</div>
+        <a class="sidebar-link active" href="#"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg> Dashboard</a>
+        <a class="sidebar-link" href="#" onclick="goTo('history');return false;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 5V8L10 9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> History</a>
+        <a class="sidebar-link" href="#" onclick="goTo('form');return false;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> New validation</a>
+      </div>
+      <div class="sidebar-section" style="margin-top:24px;">
+        <div class="sidebar-label">Reports</div>
+        <a class="sidebar-link" href="#" onclick="openModule('market');return false;">Market validation</a>
+        <a class="sidebar-link" href="#" onclick="openModule('competitors');return false;">Competitor analysis</a>
+        <a class="sidebar-link" href="#" onclick="openModule('audience');return false;">Audience personas</a>
+        <a class="sidebar-link" href="#" onclick="openModule('revenue');return false;">Revenue model</a>
+        <a class="sidebar-link" href="#" onclick="openModule('swot');return false;">SWOT analysis</a>
+        <a class="sidebar-link" href="#" onclick="openModule('roadmap');return false;">MVP roadmap</a>
+        <a class="sidebar-link" href="#" onclick="openModule('landing');return false;">Landing page</a>
+        <a class="sidebar-link" href="#" onclick="openModule('pitch');return false;">Pitch deck</a>
+        <a class="sidebar-link" href="#" onclick="openModule('investor');return false;">Investor readiness</a>
+        <a class="sidebar-link" href="#" onclick="openModule('viral');return false;">Viral potential</a>
+        <a class="sidebar-link" href="#" onclick="openModule('cofounder');return false;">Founder matcher</a>
+      </div>
+    </aside>
+
+    <main class="dash-main">
+      <div class="dash-header">
+        <div class="dash-title-area">
+          <span class="eyebrow">Validation report</span>
+          <h1 id="dashIdeaName">Idea name</h1>
+          <p id="dashIdeaMeta">Industry · Audience</p>
+        </div>
+        <div class="dash-actions">
+          <button class="btn btn-ghost btn-sm" onclick="exportReport()">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1V9M7 9L4 6M7 9L10 6M2 11H12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Export report
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="goTo('form')">New validation</button>
+        </div>
+      </div>
+
+      <div class="dash-hero-grid">
+        <div class="score-card">
+          <svg width="160" height="160" viewBox="0 0 160 160">
+            <circle cx="80" cy="80" r="68" fill="none" stroke="#23262B" stroke-width="11"/>
+            <circle id="dashGaugeRing" cx="80" cy="80" r="68" fill="none" stroke="#39FF6A" stroke-width="11" stroke-linecap="round" stroke-dasharray="427" stroke-dashoffset="427" transform="rotate(-90 80 80)" style="transition:stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1);"/>
+            <text x="80" y="76" text-anchor="middle" font-family="JetBrains Mono" font-size="36" font-weight="700" fill="#EDEFF2" id="dashGaugeNum">0</text>
+            <text x="80" y="98" text-anchor="middle" font-family="Inter" font-size="10.5" fill="#5C626B">VIABILITY SCORE</text>
+          </svg>
+          <div class="score-verdict" id="scoreVerdict">—</div>
+          <p class="score-sub" id="scoreSub">Based on 11 weighted signals</p>
+        </div>
+        <div class="metrics-grid" id="metricsGrid"></div>
+      </div>
+
+      <div class="section-title-row" style="margin-top:8px;">
+        <h3>Analysis modules</h3>
+        <span class="text-faint mono" style="font-size:12px;">11 reports generated</span>
+      </div>
+      <div class="module-grid" id="moduleGrid"></div>
+    </main>
+  </div>
+</section>
+
+<!-- ============ HISTORY ============ -->
+<section class="screen" id="screen-history">
+  <div class="container" style="max-width:900px;">
+    <div class="dash-header" style="margin-bottom:36px;">
+      <div class="dash-title-area">
+        <span class="eyebrow">Your validations</span>
+        <h1>History</h1>
+        <p>Every idea you've validated, saved to your account.</p>
+      </div>
+      <div class="dash-actions">
+        <button class="btn btn-primary btn-sm" onclick="goTo('form')">New validation</button>
+      </div>
+    </div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+</section>
+
+</div><!-- /app-shell -->
+
+<!-- ============ MODAL ============ -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div class="modal-head-left">
+        <div class="modal-icon" id="modalIcon"></div>
+        <div>
+          <h2 id="modalTitle">Title</h2>
+          <p id="modalSubtitle">Subtitle</p>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeModal()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3L13 13M13 3L3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
